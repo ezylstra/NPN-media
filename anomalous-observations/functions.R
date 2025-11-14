@@ -1,10 +1,9 @@
 # Function to clean up individual phenometrics dataset after downloading
   # Remove unnecessary columns
-  # Replace -9999 with NA
   # Remove observations of 'ohi'a lehua  
-  # Remove observations with conflicts or those without prior no in last 30 days
+  # Remove observations with conflicts or those without prior no in last X days
   # Keep only first observation of individual for a phenophase in a year
-ind_ph_cleanup <- function(df) {
+ind_ph_cleanup <- function(df, prior_no_mindays = 30) {
   df <- df %>%
     select(site_id, latitude, longitude, elevation_in_meters, state,
            common_name, species_id, species_functional_type, individual_id,
@@ -20,15 +19,10 @@ ind_ph_cleanup <- function(df) {
            first_yes = first_yes_doy,
            prior_no = numdays_since_prior_no,
            flag = observed_status_conflict_flag) %>%
-    mutate(across(c(elev, prior_no),
-                  ~ ifelse(. == -9999, NA, .))) %>%
-    mutate(across(c(state, flag),
-                  ~ ifelse(. == "-9999", NA, .))) %>%
-    mutate(state = ifelse(state == "", NA, state)) %>%
     filter(common_name != "'ohi'a lehua") %>%
     filter(is.na(flag)) %>%
     filter(!is.na(prior_no)) %>%
-    filter(prior_no <= 30) %>%
+    filter(prior_no <= prior_no_mindays) %>%
     select(-flag) %>%
     arrange(id, pheno_class_id, year, first_yes) %>%
     distinct(id, pheno_class_id, year, .keep_all = TRUE) %>%

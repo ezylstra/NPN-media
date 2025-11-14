@@ -1,5 +1,5 @@
 # Anomalous observations script - dashboard
-# 11 March 2025
+# 14 November 2025
 
 library(here)
 library(rnpn)
@@ -52,8 +52,11 @@ radius <- 100
 # observations for comparison
 elev_buffer <- 1000
 
+# Set the number of days prior to the first yes when a "no" must have been 
+# reported 
+prior_no_mindays <- 30
+
 # Select phenophase classes we're interested in
-phenoclasses <- npn_pheno_classes() %>% data.frame()
 pheno_class_ids <- c(1, 3, 6, 7)
   # 1: initial shoot/leaf growth
   # 3: leaves/needles
@@ -68,13 +71,13 @@ states48 <- state.abb[! state.abb %in% c("AK", "HI")]
 
 # Set mapping parameters ------------------------------------------------------#
 
-# Set date to extract AGDD anomalies (for map). If don't want today, then set
-# agdd_date to desired date.
+# Set date to extract AGDD anomalies (for map). Latest possible date = 30 April. 
+# If don't want today, then set agdd_date to desired date.
 agdd_today <- TRUE
 if (!agdd_today) {
   agdd_date <- ymd("2025-02-03")
 } else {
-  agdd_date <- today()
+  agdd_date <- min(today(), ymd(paste0(year, "-04-30")))
 }
 
 # Define breaks that will be used to delineate areas cooler/warmer than 30-year
@@ -85,20 +88,10 @@ agdd_breaks <- c(-2000, -40, 40, 2000)
 cw_cols <- c("#6fa8d6", "#f7f0da", "#fa824d")
 # plot(1:3, rep(1, 3), pch = 19, cex = 5, col = cols)
 
-# Get states layer ------------------------------------------------------------#
+# Load states layer -----------------------------------------------------------#
 
-# File location
 states_shp <- here("shapefiles", "us_states.shp")
-
-# If file exists, load it. Otherwise download it first.
-if (!file.exists(states_shp)) {
-  library(rnaturalearth)
-  states <- rnaturalearth::ne_states(country = "united states of america", 
-                                     returnclass = "sv")
-  states <- states[, "postal"]
-} else {
-  states <- terra::vect(states_shp)
-}
+states <- vect(states_shp)
 
 # Aquire, format phenometric data in current year -----------------------------#
 
@@ -109,143 +102,46 @@ if (!file.exists(states_shp)) {
 current_dl <- npn_download_individual_phenometrics(
   request_source = 'erinz',
   years = year,
+  period_start = "01-01",
+  period_end = "04-30",
   pheno_class_ids = pheno_class_ids,
   additional_fields = c("observed_status_conflict_flag",
                         "species_functional_type")
 )
 
-current <- ind_ph_cleanup(current_dl)
+current <- ind_ph_cleanup(current_dl, prior_no_mindays = prior_no_mindays)
 current <- state_fill_in(current)
 current <- elev_fill_in(current)
 rm(current_dl)
 
-# Aquire, format phenometric data in previous years ---------------------------#
+# Load, merge phenometric data in previous years ------------------------------#
 
-# Existing dataset example filenames: obs_phc1_2009_2023.csv, obs_phc3_2009-2024.csv
+# Existing dataset example filename: obs_phc1_prior.csv
+# Existing dataset example filename: obs_phc1_2009-2024.csv ##### WILL SWITCH
 
 for (pheno_class in pheno_class_ids) {
-
-  # Name of existing file for that phenophase class (if it exists)
+  # Name of existing file for that phenophase class
   prior_file <- list.files(here("anomalous-observations"), 
                            pattern = paste0("obs-phc", pheno_class, "-2009"),
                            full.names = TRUE)
   
-  # If file exists...
-  if (length(prior_file) == 1) {
-    
-    # Load file
-    prior_data <- read.csv(prior_file)
-    
-    # Last year in prior file
-    last_yr <- max(prior_data$year)
-    
-    # Species in prior file
-    prior_spp <- unique(prior_data$species_id)
-    
-    # If we don't have data for all prior years, download missing years 
-    if (last_yr < year - 1) {
-      yrs_to_download <- (last_yr + 1):(year - 1)
-      dl_temp <- npn_download_individual_phenometrics(
-        request_source = 'erinz',
-        years = yrs_to_download,
-        species_ids = prior_spp,
-        pheno_class_ids = pheno_class,
-        additional_fields = c("observed_status_conflict_flag",
-                              "species_functional_type")
-      )
-      
-      missing_data <- ind_ph_cleanup(dl_temp)
-      missing_data <- state_fill_in(missing_data)
-      missing_data <- elev_fill_in(missing_data)
-      
-      # Remove previous file
-      invisible(file.remove(prior_file))
-      
-      # Append missing years to older data and save with new filename
-      prior_data <- rbind(prior_data, missing_data)
-      prior_file <- str_replace(prior_file, last_yr, as.character(year - 1))
-      write.csv(prior_data, prior_file, row.names = FALSE)
-      
-    }
-      
-    # Now make sure that we have data for all species in current file
-    current_spp <- unique(current$species_id[current$pheno_class_id == pheno_class])
-    missing_spp <- setdiff(current_spp, prior_spp)
-    
-    # If we're missing data for any species, download and append
-    if (length(missing_spp) > 0) {
-      
-      dl_temp <- npn_download_individual_phenometrics(
-        request_source = 'erinz',
-        years = prior_years,
-        species_ids = missing_spp, 
-        pheno_class_ids = pheno_class,
-        additional_fields = c("observed_status_conflict_flag",
-                              "species_functional_type")
-      )
-      #TODO: wait for package update or create code to handle error that results
-      # from downloading data for species that don't have any observations
-
-      missing_data <- ind_ph_cleanup(dl_temp)
-      missing_data <- state_fill_in(missing_data)
-      missing_data <- elev_fill_in(missing_data)
-      
-      # Remove previous file
-      invisible(file.remove(prior_file))
-      
-      # Append missing data to existing data and save with new filename
-      prior_data <- rbind(prior_data, missing_data)
-      write.csv(prior_data, prior_file, row.names = FALSE)
-      rm(prior_data)
-      
-    }
+  # Load file
+  prior_data <- read.csv(prior_file)
   
-  } else {
-    
-    # If there are no existing files with prior year data, download everything
-    current_spp <- unique(current$species_id[current$pheno_class_id == pheno_class])
-    dl_temp <- npn_download_individual_phenometrics(
-      request_source = 'erinz',
-      years = prior_years,
-      species_ids = current_spp,
-      pheno_class_ids = pheno_class,
-      additional_fields = c("observed_status_conflict_flag",
-                            "species_functional_type")
-    )
-    prior_data <- ind_ph_cleanup(dl_temp)
-    prior_data <- state_fill_in(prior_data)
-    prior_data <- elev_fill_in(prior_data)
-    
-    # Save to file
-    prior_file <- here("anomalous-observations",
-                       paste0("obs-phc", pheno_class, "-2009-", year-1, ".csv"))
-    write.csv(prior_data, prior_file, row.names = FALSE)
-    rm(prior_data)
-    
-  }
-}
-
-# Load existing data for each phenophase class and merge
-for (pheno_class in pheno_class_ids) {
-  prior_phc <- read.csv(here("anomalous-observations",
-                             paste0("obs-phc", pheno_class, "-2009-", year-1, ".csv")))
+  # Merge 
   if (pheno_class == pheno_class_ids[1]) {
-    prior <- prior_phc 
+    prior <- prior_data
   } else {
-    prior <- rbind(prior, prior_phc)
+    prior <- rbind(prior, prior_data)
   }
-  rm(prior_phc)
 }
-
-
-
-
+rm(prior_data)
 
 # Compare current year observations with distribution of first observation dates
 # for plants within xx km and xx m elevation ----------------------------------#
 
-# current <- read.csv(here("anomalous-observations", "current_20250204.csv"))
-# prior <- read.csv(here("anomalous-observations", "prior_20250204.csv"))
+current <- read.csv(here("anomalous-observations", "current_20250204.csv"))
+prior <- read.csv(here("anomalous-observations", "prior_20250204.csv"))
 
 current$n_obs_r <- NA
 current$n_indiv_r <- NA
