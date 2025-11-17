@@ -1,5 +1,5 @@
 # Anomalous observations script - dashboard
-# 14 November 2025
+# 17 November 2025
 
 library(here)
 library(rnpn)
@@ -13,6 +13,13 @@ library(terra)
 library(tidyterra)
 library(elevatr)
 library(leaflet)
+library(pins)
+
+board <- board_connect(
+  auth = "manual",
+  server = Sys.getenv("CONNECT_SERVER"),
+  key = Sys.getenv("CONNECT_API_KEY")
+)
 
 # This code identifies anomalous observations of plants in the current year 
 # compared to the long term record (2009-XXXX). First observation date in 
