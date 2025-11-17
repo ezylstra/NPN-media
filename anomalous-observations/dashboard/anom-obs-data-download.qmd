@@ -1,0 +1,26 @@
+---
+title: "Anomalous spring observations - data download"
+format: html
+editor: visual
+---
+
+```{r setup}
+#| message: false
+#| warning: false
+
+library(here)
+library(rnpn)
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(terra)
+library(elevatr)
+library(pins)
+terraOptions(progress = 0)
+
+board <- board_connect(
+  auth = "manual",
+  server = Sys.getenv("CONNECT_SERVER"),
+  key = Sys.getenv("CONNECT_API_KEY")
+)
+```         
