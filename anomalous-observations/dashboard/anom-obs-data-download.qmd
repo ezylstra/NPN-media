@@ -2,6 +2,8 @@
 title: "Anomalous spring observations - data download"
 format: html
 editor: visual
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup}
@@ -13,14 +15,279 @@ library(rnpn)
 library(dplyr)
 library(lubridate)
 library(stringr)
+library(sf)
 library(terra)
 library(elevatr)
 library(pins)
+library(tigris)
+library(data.table)
 terraOptions(progress = 0)
 
+# Establish link to board
 board <- board_connect(
   auth = "manual",
   server = Sys.getenv("CONNECT_SERVER"),
   key = Sys.getenv("CONNECT_API_KEY")
 )
-```         
+```
+
+```{r basic-parameters}
+
+# Get date and year
+today <- Sys.Date()
+current_yr <- year(today)
+last_yr <- current_yr - 1
+
+# Select phenophase classes
+pheno_class_ids <- c(1, 3, 6, 7)
+  # 1: initial shoot/leaf growth
+  # 3: leaves/needles
+  # 6: flowers/cones
+  # 7: open flowers/cones 
+# Note: for this script, not going to differentiate among phenophases in 
+# each phenophase class. Mostly phenophases differ among species or functional
+# type, but there are also some old phenophases that are no longer used.
+
+# Set the number of days prior to a first yes within which we needed a prior no
+prior_no_max <- 30
+  # For now, only including first yeses if they're preceded by a no within 30 days 
+  # in that same calendar year (If there wasn't a prior no that same calendar 
+  # year the value = NA). This probably means that we'll filter out many first 
+  # yeses that occur at the very beginning of the year.
+
+# Data download parameters
+first_yr <- 2009
+period_start <- "01-01"
+period_end <- "05-31"
+requestor <- "erinz"
+
+# Postal codes for lower 48 states
+states48 <- state.abb[! state.abb %in% c("AK", "HI")]
+```
+
+```{r states}
+#| message: false
+
+# If pin with state boundries doesn't exist, download it. 
+if (!pin_exists(board = board, "ezylstra/us-states")) {
+  
+  usstates <- tigris::states(progress_bar = FALSE)
+  
+  # Just keep lower 48 and state name column
+  usstates <- usstates %>% 
+    filter(STUSPS %in% states48) %>%
+    select(STUSPS)
+  
+  pin_write(board = board, x = usstates, name = "ezylstra/us-states")
+
+  } else {
+    
+  usstates <- pin_read(board = board, "ezylstra/us-states")
+
+}
+
+# Convert to SpatVector and project
+usstates <- terra::vect(usstates)
+usstates <- terra::project(usstates, "epsg:4326")
+```
+
+```{r functions}
+
+# Function to clean up individual phenometrics dataset after downloading
+  # Remove unnecessary columns
+  # Remove observations of 'ohi'a lehua  
+  # Remove observations with conflicts or those without prior no in last X days
+  # Keep only first observation of individual for a phenophase in a year
+ind_ph_cleanup <- function(df, prior_no_max = 30) {
+  df <- df %>%
+    select(site_id, latitude, longitude, elevation_in_meters, state,
+           common_name, species_id, species_functional_type, individual_id,
+           phenophase_description, pheno_class_id, first_yes_year, first_yes_doy,
+           numdays_since_prior_no, observed_status_conflict_flag) %>%
+    rename(lat = latitude,
+           lon = longitude,
+           elev = elevation_in_meters,
+           func_type = species_functional_type,
+           id = individual_id,
+           phenophase = phenophase_description,
+           year = first_yes_year,
+           first_yes = first_yes_doy,
+           prior_no = numdays_since_prior_no,
+           flag = observed_status_conflict_flag) %>%
+    filter(common_name != "'ohi'a lehua") %>%
+    filter(is.na(flag)) %>%
+    filter(!is.na(prior_no)) %>%
+    filter(prior_no <= prior_no_max) %>%
+    select(-flag) %>%
+    arrange(id, pheno_class_id, year, first_yes) %>%
+    distinct(id, pheno_class_id, year, .keep_all = TRUE) %>%
+    data.frame()
+  df
+}
+
+# Function to fill in state postal code if missing
+state_fill_in <- function(df, states_shp = usstates) {
+  state_fill <- filter(df, is.na(state)) %>%
+    select(site_id, lon, lat) %>%
+    distinct()
+  state_fillv <- vect(state_fill, crs = "epsg:4326")
+  state_new <- terra::extract(states_shp, state_fillv)
+  state_fill <- cbind(state_fill, state_new = state_new$STUSPS)
+  df <- df %>%
+    left_join(select(state_fill, site_id, state_new), by = "site_id") %>%
+    mutate(state = ifelse(!is.na(state), state, state_new)) %>%
+    select(-state_new) %>%
+    # Restrict observations to the continental US
+    filter(state %in% states48)
+  df
+}
+
+# Function to fill in elevation if missing (using elevatr package)
+elev_fill_in <- function(df) {
+  elev_fill <- filter(df, is.na(elev)) %>%
+    distinct(site_id, lat, lon) %>%
+    st_as_sf(coords = c("lon", "lat"), crs = 4326)
+  elev_fill <- get_elev_point(locations = elev_fill, src = "epqs")
+  elev_fill <- data.frame(elev_fill) %>%
+    mutate(elev_new = round(elevation)) %>%
+    select(site_id, elev_new)
+  df <- df %>%
+    left_join(elev_fill, by = "site_id") %>%
+    mutate(elev = ifelse(!is.na(elev), elev, elev_new)) %>%
+    select(-elev_new)
+  df
+}
+```
+
+```{r load-prior-yrs}
+
+# Check if pin exists
+prior_exists <- pin_exists(board, "ezylstra/anom-data-prior-yrs")
+
+# If it doesn't exist, create it. Otherwise, load it and append data from last 
+# calendar year if not already in there.
+
+missing_yrs_tf <- FALSE
+
+if (prior_exists) {
+  prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs")
+  
+  # Years in dataset
+  yrs_in_file <- sort(unique(prior$year))
+  
+  # Identify whether any years are missing or not
+  missing_yrs <- setdiff(first_yr:last_yr, yrs_in_file)
+  missing_yrs_tf <- ifelse(length(missing_yrs) == 0, FALSE, TRUE)
+  
+  if (missing_yrs_tf) {
+    
+    prior_dl <- npn_download_individual_phenometrics(
+      request_source = requestor,
+      years = missing_yrs,
+      period_start = period_start,
+      period_end = period_end,
+      pheno_class_ids = pheno_class_ids,
+      additional_fields = c("observed_status_conflict_flag",
+                            "species_functional_type")
+    )
+  
+    prior_add <- ind_ph_cleanup(prior_dl, prior_no_max = prior_no_max)
+    prior_add <- state_fill_in(prior_add)
+    prior_add <- elev_fill_in(prior_add)
+    rm(prior_dl)
+    
+    prior <- rbind(prior, prior_add)
+    
+    # Write to pin
+    pin_write(board = board,
+          x = prior,
+          name = "ezylstra/anom-data-prior-yrs")
+  }
+  
+} else {
+  
+  prior_dl <- npn_download_individual_phenometrics(
+    request_source = requestor,
+    years = first_yr:last_yr,
+    period_start = period_start,
+    period_end = period_end,
+    pheno_class_ids = pheno_class_ids,
+    additional_fields = c("observed_status_conflict_flag",
+                          "species_functional_type")
+  )
+
+  prior <- ind_ph_cleanup(prior_dl, prior_no_max = prior_no_max)
+  prior <- state_fill_in(prior)
+  prior <- elev_fill_in(prior)
+  rm(prior_dl)
+  
+  # Write to pin
+  pin_write(board = board,
+          x = prior,
+          name = "ezylstra/anom-data-prior-yrs")
+} 
+
+```
+
+```{r current-yr}
+#| message: false
+#| eval: true
+
+# Don't need to check for last date in file. Will schedule this script to run
+# daily from 1 Jan through 31 May. Anytime the script is run, it will 
+# download current year data through current date.
+
+current_dl <- npn_download_individual_phenometrics(
+  request_source = requestor,
+  years = current_yr,
+  period_start = period_start,
+  period_end = period_end,
+  pheno_class_ids = pheno_class_ids,
+  additional_fields = c("observed_status_conflict_flag",
+                        "species_functional_type")
+)
+
+current <- ind_ph_cleanup(current_dl, prior_no_max = prior_no_max)
+current <- state_fill_in(current)
+current <- elev_fill_in(current)
+rm(current_dl)
+
+# Write to pin
+pin_write(board = board,
+          x = current,
+          name = "ezylstra/anom-data-current-yr")
+
+```
+
+```{r distance-calculations}
+
+# Convert to data.table for performance
+current_dt <- as.data.table(current)
+prior_dt <- as.data.table(prior)
+
+# Add unique row IDs
+current_dt[, row_id := .I]
+
+# Get unique sites from both dataframes
+current_sites <- unique(current_dt[, .(site_id, lat, lon)])
+prior_sites <- unique(prior_dt[, .(site_id, lat, lon)])
+
+# Compute distance matrix
+dist_matrix <- terra::distance(
+  x = as.matrix(current_sites[, .(lon, lat)]),
+  y = as.matrix(prior_sites[, .(lon, lat)]),
+  lonlat = TRUE,
+  unit = "km"
+)
+
+# Append site IDs for current/prior sites as rownames/colnames
+rownames(dist_matrix) <- current_sites$site_id
+colnames(dist_matrix) <- prior_sites$site_id
+
+# Write to pin
+pin_write(board = board,
+          x = dist_matrix,
+          name = "ezylstra/anom-data-dist-matrix")
+
+```
+
