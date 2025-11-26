@@ -22,6 +22,11 @@ current <- pin_read(board = board, "ezylstra/anom-data-current-yr")
 prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs")
 dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix")
 
+#### TODO:
+# Create a button in datatable rows that create popup with histogram. 
+# Alternatively
+# Could have window below table that has histogram for whatever row is selected
+# Or add histograms as a column... 
 
 # ui --------------------------------------------------------------------------#
 
@@ -81,7 +86,7 @@ ui <- page_navbar(
   nav_panel(title = "Map", leafletOutput(outputId = "map"))
 )
 
-server <- function(input, output) {
+server <- function(input, output, session) {
 
   # Convert to data.table for performance
   current_dt <- as.data.table(current)
@@ -94,104 +99,97 @@ server <- function(input, output) {
   current_sites <- as.numeric(rownames(dist_matrix))
   prior_sites <- as.numeric(colnames(dist_matrix))
 
-  output$table <- renderDT({
-    
-    qearly <- input$inEarly
-    radius <- input$inRadius
-    elev_buffer <- input$inRadius
-    min_obs <- input$inObs
-    min_yrs <- input$inYrs
-    # blb <- input$inBLB
-    # leaves <- input$inLeaves
-    # flowers <- input$inFlowers
-    # open <- input$inOpenFlowers
-    phps <- input$inPhps
-    
-    # Create lookup table of all site pairs within selected radius (in km)
-    within_radius <- which(dist_matrix <= radius, arr.ind = TRUE)
-    site_pairs <- data.table(
-      current_site = current_sites[within_radius[, 1]],
-      prior_site = prior_sites[within_radius[, 2]]
+  # Get input values
+  qearly <- reactive(input$inEarly)
+  radius <- reactive(input$inRadius)
+  elev_buffer <- reactive(input$inElev)
+  min_obs <- reactive(input$inObs)
+  min_yrs <- reactive(input$inYrs)
+  phps <- reactive(input$inPhps)
+  
+  # Create lookup table of all site pairs within selected radius (in km)
+  within_radius <- reactive({which(dist_matrix <= radius(), arr.ind = TRUE)})
+  site_pairs <- reactive({
+    data.table(
+      current_site = current_sites[within_radius()[, 1]],
+      prior_site = prior_sites[within_radius()[, 2]]
     )
-    
-    # Expand current_dt to include all nearby prior sites
-    current_expanded <- merge(
+  })
+  
+  # Expand current_dt to include all nearby prior sites
+  current_expanded <- reactive({
+    merge(
       current_dt,
-      site_pairs,
+      site_pairs(),
       by.x = "site_id",
       by.y = "current_site",
       allow.cartesian = TRUE
     )
-    # This will have as many rows for each observation in current as there are 
-    # sites that are within the given radius (does NOT depend on spp, class, elev)
+  })
+  # This will have as many rows for each observation in current as there are 
+  # sites that are within the given radius (does NOT depend on spp, class, elev)
     
-    # Join with prior observations (matching spp, phenophase class, nearby sites)
-    matches <- merge(
-      current_expanded,
+  # Join with prior observations (matching spp, phenophase class, nearby sites)
+  matches_all <- reactive({
+    merge(
+      current_expanded(),
       prior_dt,
       by.x = c("common_name", "pheno_class_id", "prior_site"),
       by.y = c("common_name", "pheno_class_id", "site_id"),
       suffixes = c("", "_prior"),
       allow.cartesian = TRUE
     )
-    # For any row that has prior observations for the site within xx km and the
-    # current species and phenophase class, attach prior observation info (incl 
-    # elev, year, first_yes). IF there are no prior observations for any site 
-    # within xx km, then rows for that current observation are removed. 
-    
-    # Filter by elevation range
-    matches <- matches[
-      elev_prior > (elev - elev_buffer) & elev_prior < (elev + elev_buffer)
+  })
+  # For any row that has prior observations for the site within xx km and the
+  # current species and phenophase class, attach prior observation info (incl 
+  # elev, year, first_yes). IF there are no prior observations for any site 
+  # within xx km, then rows for that current observation are removed. 
+  
+  # Filter by elevation range
+  matches <- reactive({
+    matches_all()[
+      elev_prior > (elev - elev_buffer()) & elev_prior < (elev + elev_buffer())
     ]
-    
-    # Calculate statistics for each current observation
-    stats <- matches[, .(
+  })
+  
+  # Calculate statistics for each current observation
+  stats <- reactive({ 
+    matches()[, .(
       prior_nobs = .N,
       prior_nyrs = uniqueN(year_prior),
       prior_min = min(first_yes_prior),
-      prior_qearly = quantile(first_yes_prior, qearly)
+      prior_qearly = quantile(first_yes_prior, qearly())
     ), by = row_id]
+  })  
     
-    # Join statistics back to current_df
+  # Join statistics back to current_df
+  result_temp <- reactive({
     setkey(current_dt, row_id)
-    setkey(stats, row_id)
-    result <- stats[current_dt, on = "row_id"]
-    # In data.table syntax: X[Y] means "keep all rows from Y, add matching data from X"
-    # So: stats[current_dt] = Keep ALL current_dt rows, add stats where available
+    setkey(stats(), row_id)
+    stats()[current_dt, on = "row_id"]
+  })  
     
-    # Fill in NAs for observations with no matches
-    result[is.na(prior_nobs), `:=`(
+  # Fill in NAs for observations with no matches
+  result <- reactive({
+    result_temp()[is.na(prior_nobs), `:=`(
       prior_nobs = 0L,
       prior_nyrs = 0L,
       prior_min = NA_real_,
       prior_qearly = NA_real_
     )]
+  })  
+  # In data.table syntax: X[Y] means "keep all rows from Y, add matching data from X"
+  # So: stats[current_dt] = Keep ALL current_dt rows, add stats where available
     
-    # Convert back to data frame
-    current_df <- as.data.frame(result)
-    current_df <- current_df %>%
-      filter(pheno_class_id %in% phps)
-    # if (blb == FALSE) {
-    #   current_df <- filter(current_df, pheno_class_id != 1)
-    # }
-    # if (leaves == FALSE) {
-    #   current_df <- filter(current_df, pheno_class_id != 3)
-    # }
-    # if (flowers == FALSE) {
-    #   current_df <- filter(current_df, pheno_class_id != 6)
-    # }
-    # if (open == FALSE) {
-    #   current_df <- filter(current_df, pheno_class_id != 7)
-    # }
-    
-    # Final calculations
-    current_df <- current_df %>%
-      mutate(suff_obs = ifelse(prior_nobs >= min_obs & prior_nyrs >= min_yrs, 
+  # Get anom obs dataframe
+  current_df <- reactive({
+    result() %>%
+      as.data.frame() %>%
+      filter(pheno_class_id %in% phps()) %>%
+      mutate(suff_obs = ifelse(prior_nobs >= min_obs() & prior_nyrs >= min_yrs(), 
                                1, 0)) %>%
       mutate(early = ifelse(suff_obs == 1 & first_yes <= prior_qearly, 1, 0),
-             earliest = ifelse(suff_obs == 1 & first_yes <= prior_min, 1, 0))
-    
-    current_df <- current_df %>%
+             earliest = ifelse(suff_obs == 1 & first_yes <= prior_min, 1, 0)) %>%
       separate_wider_delim(phenophase, 
                            delim = " (", 
                            names = c("php_simple", NA),
@@ -201,21 +199,22 @@ server <- function(input, output) {
                                           orders = "yj")) %>%
       mutate(first_date = format(first_date, "%Y-%m-%d")) %>%
       mutate(early_cat = ifelse(earliest == 1, "Earliest",
-                                ifelse(early == 1, "Early", "Not early")))
-    
-    # Create table with summary of results (that can be filtered by user)
-    outtable <- current_df %>%
+                                ifelse(early == 1, "Early", "Not early"))) %>%
       filter(early == 1 | earliest == 1) %>%
       arrange(pheno_class_id, func_type, common_name, state, site_id, id) %>%
       select(php_simple, common_name, func_type, state, site_id, id, 
-             first_date, prior_no, early_cat, prior_nyrs, prior_nobs) %>%
+             first_date, prior_no, early_cat, prior_nyrs, prior_nobs,
+             pheno_class_id, lat, lon) %>%
       mutate(php_simple = factor(php_simple),
              common_name = factor(common_name),
              func_type = factor(func_type),
              state = factor(state),
              early_cat = factor(early_cat))
+    
+  })
 
-    datatable(outtable,
+  output$table <- renderDT({
+    datatable(current_df(),
               colnames = c("Phenophase", 
                            "Species",
                            "Functional type",
@@ -226,7 +225,10 @@ server <- function(input, output) {
                            "Days since no",
                            "Early",
                            "Num. comparison yrs",
-                           "Num. comparison obs"),
+                           "Num. comparison obs",
+                           "Phenophase class ID",
+                           "Latitude",
+                           "Longitude"),
               extensions = 'Buttons',
               options = list(
                 server = FALSE,
@@ -239,16 +241,67 @@ server <- function(input, output) {
                 autoWidth = TRUE,
                 # Hiding some columns, but keeping in table for downloads
                 # Centering some columns
-                columnDefs = list(list(targets = c(5, 8, 10:11), visible = FALSE),
+                columnDefs = list(list(targets = c(5, 8, 10:14), visible = FALSE),
                                   list(targets = 4:11, className = 'dt-center'))),
               filter = "top")
+  })
+
+  filtered_frame <- reactive({
+    frame <- req(current_df())
+    indexes <- req(input$table_rows_all)
+    frame[indexes,]
   })
   
   # Create base map
   output$map <- renderLeaflet({
-    leaflet() %>%
+    leaflet(data = filtered_frame()) %>%
       fitBounds(lng1 = -125, lat1 = 26, lng2 = -65, lat2 = 47) %>%
-      addTiles()
+      addTiles() %>%
+      addCircles(lng = ~lon, lat = ~lat, 
+                 data = filter(filtered_frame(), pheno_class_id == 1), 
+                 group = "Breaking leaf buds",
+                 color = "green", fillOpacity = 1, weight = 10,
+                 popup = ~paste0(common_name, "<br>", 
+                                 "ID: ", id, "<br>",
+                                 "First yes: ", first_date, "<br>",
+                                 "No. comparison years: ", prior_nyrs, "<br>",
+                                 "No. comparison obs: ", prior_nobs)) %>%
+      addCircles(lng = ~lon, lat = ~lat, 
+                 data = filter(filtered_frame(), pheno_class_id == 3), 
+                 group = "Leaves",
+                 color = "blue", fillOpacity = 1, weight = 10,
+                 popup = ~paste0(common_name, "<br>", 
+                                 "ID: ", id, "<br>",
+                                 "First yes: ", first_date, "<br>",
+                                 "No. comparison years: ", prior_nyrs, "<br>",
+                                 "No. comparison obs: ", prior_nobs)) %>%
+      addCircles(lng = ~lon, lat = ~lat, 
+                 data = filter(filtered_frame(), pheno_class_id == 6), 
+                 group = "Flowers",
+                 color = "orange", fillOpacity = 1, weight = 10,
+                 popup = ~paste0(common_name, "<br>", 
+                                 "ID: ", id, "<br>",
+                                 "First yes: ", first_date, "<br>",
+                                 "No. comparison years: ", prior_nyrs, "<br>",
+                                 "No. comparison obs: ", prior_nobs)) %>%
+      addCircles(lng = ~lon, lat = ~lat, 
+                 data = filter(filtered_frame(), pheno_class_id == 7), 
+                 group = "Open flowers",
+                 color = "red", fillOpacity = 1, weight = 10,
+                 popup = ~paste0(common_name, "<br>", 
+                                 "ID: ", id, "<br>",
+                                 "First yes: ", first_date, "<br>",
+                                 "No. comparison years: ", prior_nyrs, "<br>",
+                                 "No. comparison obs: ", prior_nobs)) %>%
+      addLayersControl(overlayGroups = c("Breaking leaf buds",
+                                         "Leaves",
+                                         "Flowers",
+                                         "Open flowers"),
+                       options = layersControlOptions(collapse = FALSE)) %>%
+      addLegend(position = "bottomright",
+                colors = c("green", "blue", "orange", "red"),
+                labels = c("Breaking leaf buds", "Leaves",
+                           "Flowers", "Open flowers"))
   })
 }
 
