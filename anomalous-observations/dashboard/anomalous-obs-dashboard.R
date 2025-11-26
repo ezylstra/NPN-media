@@ -1,9 +1,10 @@
 # Anomalous observations script - dashboard
-# 20 November 2025
+# 25 November 2025
 
 library(dplyr)
 library(lubridate)
 library(stringr)
+library(tidyr)
 library(data.table)
 library(ggplot2)
 library(scales) # To make integer axis labels
@@ -181,15 +182,51 @@ current_df <- current_df %>%
 # filter(current_df, early == 1 & earliest == 0) %>% head(10)
 
 # Create histogram for a particular observation:
-matches %>% 
-  filter(row_id == 212) %>%
-  ggplot(aes(x = first_yes_prior)) +
-  geom_histogram(binwidth = 1) +
-  geom_vline(xintercept = filter(matches, row_id == 212) %>% 
-               pull(first_yes) %>% 
-               first(),
-             color = "blue", linetype = "dashed") +
-  labs(x = "First yes day of year", y = "Count")
+# matches %>% 
+#   filter(row_id == 212) %>%
+#   ggplot(aes(x = first_yes_prior)) +
+#   geom_histogram(binwidth = 1) +
+#   geom_vline(xintercept = filter(matches, row_id == 212) %>% 
+#                pull(first_yes) %>% 
+#                first(),
+#              color = "blue", linetype = "dashed") +
+#   labs(x = "First yes day of year", y = "Count")
+
+# Create simpler phenophase and phenophase class labels (with numbers and 
+# parenthetical references to functional type removed)
+current_df <- current_df %>%
+  separate_wider_delim(phenophase, 
+                       delim = " (", 
+                       names = c("php_simple", NA),
+                       too_few = "align_start",
+                       cols_remove = TRUE) %>%
+  mutate(class = case_when(
+    pheno_class_id == 1 ~ "Breaking leaf buds",
+    pheno_class_id == 3 ~ "Leaves",
+    pheno_class_id == 6 ~ "Flowers",
+    pheno_class_id == 7 ~ "Open flowers"
+  )) %>%
+  data.frame()
+
+# Create first yes date column
+current_df <- current_df %>%
+  mutate(first_date = parse_date_time(x = paste(year, first_yes), 
+                                      orders = "yj"))
+
+# Combine early/earliest info
+current_df <- current_df %>%
+  mutate(early_cat = ifelse(earliest == 1, "Earliest",
+                            ifelse(early == 1, "Early", "Not early")))
+
+# Create table with summary of results (that can be filtered by user)
+outtable <- current_df %>%
+  filter(early == 1 | earliest == 1) %>%
+  select(class, php_simple, common_name, func_type, state, site_id, id, first_date,
+         prior_no, prior_nobs, prior_nyrs, early_cat) %>%
+  arrange(class, func_type, common_name, state, site_id, id)
+# Might delete site_id and maybe prior no.....
+
+
 
 
 # -----------------------------------------------------------------------------#
