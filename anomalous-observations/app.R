@@ -8,6 +8,7 @@ library(bslib)
 library(leaflet)
 library(DT)
 library(pins)
+library(sf)
 
 # Establish link to board
 board <- board_connect(
@@ -17,7 +18,6 @@ board <- board_connect(
 )
 
 # Load data from pins
-# usstates <- pin_read(board = board, "ezylstra/us-states")
 current <- pin_read(board = board, "ezylstra/anom-data-current-yr")
 prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs")
 dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix")
@@ -82,7 +82,9 @@ ui <- page_navbar(
       value = 0.05
     )
   ),
-  nav_panel(title = "Data", DTOutput(outputId = "table")),
+  nav_panel(title = "Data", 
+            downloadButton("download", "Download filtered data"),
+            DTOutput(outputId = "table")),
   nav_panel(title = "Map", leafletOutput(outputId = "map"))
 )
 
@@ -209,8 +211,10 @@ server <- function(input, output, session) {
              common_name = factor(common_name),
              func_type = factor(func_type),
              state = factor(state),
-             early_cat = factor(early_cat))
-    
+             early_cat = factor(early_cat),
+             early_percentile = qearly(),
+             elevation_buffer_m = elev_buffer(),
+             geographic_radius_km = radius())
   })
 
   output$table <- renderDT({
@@ -228,20 +232,22 @@ server <- function(input, output, session) {
                            "Num. comparison obs",
                            "Phenophase class ID",
                            "Latitude",
-                           "Longitude"),
+                           "Longitude",
+                           "Early percentile",
+                           "Elevation buffer (m)",
+                           "Geographic radius (km)"),
               extensions = 'Buttons',
               options = list(
                 server = FALSE,
                 scrollX = TRUE,
                 scrollY = TRUE,
-                dom = 'lfrtipB',
-                buttons = c("copy", "csv"),
+                dom = 'lfrtip',
                 pageLength = 10,
                 lengthMenu = c(10, 50, 100),
                 autoWidth = TRUE,
                 # Hiding some columns, but keeping in table for downloads
                 # Centering some columns
-                columnDefs = list(list(targets = c(5, 8, 10:14), visible = FALSE),
+                columnDefs = list(list(targets = c(5, 8, 10:17), visible = FALSE),
                                   list(targets = 4:11, className = 'dt-center'))),
               filter = "top")
   })
@@ -252,47 +258,92 @@ server <- function(input, output, session) {
     frame[indexes,]
   })
   
+  output$download <- downloadHandler(
+    filename = function() {
+      paste("anom_obs_", Sys.Date(), ".csv", sep="")
+    },
+    content = function(file) {
+      write.csv(filtered_frame(), file)
+    }
+  )
+  
+  # Jittering locations (slightly) in map data to see things better
+  map_frame <- reactive({
+    frame <- filtered_frame() %>%
+      st_as_sf(coords = c("lon", "lat"), crs = 4326) %>% 
+      st_jitter(factor = 0.0001) 
+    frame %>%
+      cbind(st_coordinates(frame)) %>%
+      rename(lon = X, lat = Y) %>%
+      st_drop_geometry()
+  })
+  
   # Create base map
   output$map <- renderLeaflet({
-    leaflet(data = filtered_frame()) %>%
+    leaflet(data = map_frame()) %>%
       fitBounds(lng1 = -125, lat1 = 26, lng2 = -65, lat2 = 47) %>%
-      addTiles() %>%
-      addCircles(lng = ~lon, lat = ~lat, 
-                 data = filter(filtered_frame(), pheno_class_id == 1), 
-                 group = "Breaking leaf buds",
-                 color = "green", fillOpacity = 1, weight = 10,
-                 popup = ~paste0(common_name, "<br>", 
-                                 "ID: ", id, "<br>",
-                                 "First yes: ", first_date, "<br>",
-                                 "No. comparison years: ", prior_nyrs, "<br>",
-                                 "No. comparison obs: ", prior_nobs)) %>%
-      addCircles(lng = ~lon, lat = ~lat, 
-                 data = filter(filtered_frame(), pheno_class_id == 3), 
-                 group = "Leaves",
-                 color = "blue", fillOpacity = 1, weight = 10,
-                 popup = ~paste0(common_name, "<br>", 
-                                 "ID: ", id, "<br>",
-                                 "First yes: ", first_date, "<br>",
-                                 "No. comparison years: ", prior_nyrs, "<br>",
-                                 "No. comparison obs: ", prior_nobs)) %>%
-      addCircles(lng = ~lon, lat = ~lat, 
-                 data = filter(filtered_frame(), pheno_class_id == 6), 
-                 group = "Flowers",
-                 color = "orange", fillOpacity = 1, weight = 10,
-                 popup = ~paste0(common_name, "<br>", 
-                                 "ID: ", id, "<br>",
-                                 "First yes: ", first_date, "<br>",
-                                 "No. comparison years: ", prior_nyrs, "<br>",
-                                 "No. comparison obs: ", prior_nobs)) %>%
-      addCircles(lng = ~lon, lat = ~lat, 
-                 data = filter(filtered_frame(), pheno_class_id == 7), 
-                 group = "Open flowers",
-                 color = "red", fillOpacity = 1, weight = 10,
-                 popup = ~paste0(common_name, "<br>", 
-                                 "ID: ", id, "<br>",
-                                 "First yes: ", first_date, "<br>",
-                                 "No. comparison years: ", prior_nyrs, "<br>",
-                                 "No. comparison obs: ", prior_nobs)) %>%
+      # addTiles() %>%
+      addProviderTiles("Stadia.AlidadeSmooth") %>%
+      addCircleMarkers(
+        lng = ~lon, 
+        lat = ~lat,
+        data = filter(map_frame(), pheno_class_id == 1),
+        group = "Breaking leaf buds",
+        radius = 5,
+        fillColor = "green", 
+        fillOpacity = 0.7,
+        stroke = FALSE,
+        popup = ~paste0(common_name, "<br>",
+                        "ID: ", id, "<br>",
+                        "First yes: ", first_date, "<br>",
+                        "No. comparison years: ", prior_nyrs, "<br>",
+                        "No. comparison obs: ", prior_nobs)
+        ) %>%
+      addCircleMarkers(
+        lng = ~lon, 
+        lat = ~lat,
+        data = filter(map_frame(), pheno_class_id == 3),
+        group = "Leaves",
+        radius = 5,
+        fillColor = "blue", 
+        fillOpacity = 0.7,
+        stroke = FALSE,
+        popup = ~paste0(common_name, "<br>",
+                        "ID: ", id, "<br>",
+                        "First yes: ", first_date, "<br>",
+                        "No. comparison years: ", prior_nyrs, "<br>",
+                        "No. comparison obs: ", prior_nobs)
+      ) %>%
+      addCircleMarkers(
+        lng = ~lon, 
+        lat = ~lat,
+        data = filter(map_frame(), pheno_class_id == 6),
+        group = "Flowers",
+        radius = 5,
+        fillColor = "orange", 
+        fillOpacity = 0.7,
+        stroke = FALSE,
+        popup = ~paste0(common_name, "<br>",
+                        "ID: ", id, "<br>",
+                        "First yes: ", first_date, "<br>",
+                        "No. comparison years: ", prior_nyrs, "<br>",
+                        "No. comparison obs: ", prior_nobs)
+      ) %>%
+      addCircleMarkers(
+        lng = ~lon, 
+        lat = ~lat,
+        data = filter(map_frame(), pheno_class_id == 7),
+        group = "Open flowers",
+        radius = 5,
+        fillColor = "red", 
+        fillOpacity = 0.7,
+        stroke = FALSE,
+        popup = ~paste0(common_name, "<br>",
+                        "ID: ", id, "<br>",
+                        "First yes: ", first_date, "<br>",
+                        "No. comparison years: ", prior_nyrs, "<br>",
+                        "No. comparison obs: ", prior_nobs)
+      ) %>%
       addLayersControl(overlayGroups = c("Breaking leaf buds",
                                          "Leaves",
                                          "Flowers",
@@ -301,7 +352,8 @@ server <- function(input, output, session) {
       addLegend(position = "bottomright",
                 colors = c("green", "blue", "orange", "red"),
                 labels = c("Breaking leaf buds", "Leaves",
-                           "Flowers", "Open flowers"))
+                           "Flowers", "Open flowers"),
+                opacity = 1)
   })
 }
 
