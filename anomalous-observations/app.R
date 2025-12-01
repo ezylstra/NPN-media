@@ -9,6 +9,8 @@ library(leaflet)
 library(DT)
 library(pins)
 library(sf)
+library(glue)
+library(ggplot2)
 
 # Establish link to board
 board <- board_connect(
@@ -21,12 +23,6 @@ board <- board_connect(
 current <- pin_read(board = board, "ezylstra/anom-data-current-yr")
 prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs")
 dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix")
-
-#### TODO:
-# Create a button in datatable rows that create popup with histogram. 
-# Alternatively
-# Could have window below table that has histogram for whatever row is selected
-# Or add histograms as a column... 
 
 # ui --------------------------------------------------------------------------#
 
@@ -82,10 +78,12 @@ ui <- page_navbar(
       value = 0.05
     )
   ),
+  fillable = "Map",
   nav_panel(title = "Data", 
             downloadButton("download", "Download filtered data"),
-            DTOutput(outputId = "table")),
-  nav_panel(title = "Map", leafletOutput(outputId = "map"))
+            DTOutput(outputId = "table"),
+            plotOutput(outputId = "histogram")),
+  nav_panel(title = "Map", leafletOutput(outputId = "map")),
 )
 
 server <- function(input, output, session) {
@@ -214,11 +212,19 @@ server <- function(input, output, session) {
              early_cat = factor(early_cat),
              early_percentile = qearly(),
              elevation_buffer_m = elev_buffer(),
-             geographic_radius_km = radius())
+             geographic_radius_km = radius(),
+             id_class = paste0(id, "_", pheno_class_id))
   })
 
   output$table <- renderDT({
-    datatable(current_df(),
+    newtable <- current_df() %>%
+      mutate(
+        actionable = glue('<button id="custom_btn" onclick="Shiny.onInputChange(\'button_id\', \'{id_class}\')">Click</button>')
+      )
+    
+    datatable(newtable,
+              escape = FALSE,
+              selection = "single",
               colnames = c("Phenophase", 
                            "Species",
                            "Functional type",
@@ -235,7 +241,9 @@ server <- function(input, output, session) {
                            "Longitude",
                            "Early percentile",
                            "Elevation buffer (m)",
-                           "Geographic radius (km)"),
+                           "Geographic radius (km)",
+                           "Id_PhenoClass",
+                           "Histogram"),
               extensions = 'Buttons',
               options = list(
                 server = FALSE,
@@ -247,9 +255,26 @@ server <- function(input, output, session) {
                 autoWidth = TRUE,
                 # Hiding some columns, but keeping in table for downloads
                 # Centering some columns
-                columnDefs = list(list(targets = c(5, 8, 10:17), visible = FALSE),
+                columnDefs = list(list(targets = c(5, 8, 10:18), visible = FALSE),
                                   list(targets = 4:11, className = 'dt-center'))),
               filter = "top")
+  })
+
+  observeEvent(input$button_id, {
+    
+    select_id <- str_split_1(input$button_id, pattern = "_")[1]
+    select_php <- str_split_1(input$button_id, pattern = "_")[2]
+    
+    hist_data <- matches() %>%
+      filter(id == select_id & pheno_class_id == select_php)
+
+    output$histogram <- renderPlot({
+      ggplot(hist_data, aes(x = first_yes_prior)) +
+        geom_histogram(binwidth = 1) +
+        geom_vline(xintercept = hist_data$first_yes[1],
+                   color = "blue", linetype = "dashed") +
+        labs(x = "First yes day of year", y = "Count")
+    })
   })
 
   filtered_frame <- reactive({
