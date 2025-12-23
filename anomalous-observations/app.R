@@ -11,6 +11,7 @@ library(pins)
 library(sf)
 library(glue)
 library(ggplot2)
+library(shinycssloaders)
 
 # Establish link to board
 board <- board_connect(
@@ -81,9 +82,11 @@ ui <- page_navbar(
   fillable = "Map",
   nav_panel(title = "Data", 
             downloadButton("download", "Download filtered data"),
-            DTOutput(outputId = "table"),
-            plotOutput(outputId = "histogram")),
-  nav_panel(title = "Map", leafletOutput(outputId = "map")),
+            DTOutput(outputId = "table")),
+            # plotOutput(outputId = "histogram")),
+  nav_panel(title = "Map", 
+            leafletOutput(outputId = "map"),
+            em("Locations in map have been adjusted slightly to limit overlap")),
 )
 
 server <- function(input, output, session) {
@@ -262,12 +265,21 @@ server <- function(input, output, session) {
 
   observeEvent(input$button_id, {
     
+    # Show a modal with spinner immediately
+    showModal(modalDialog(
+      title = "Loading histogram...",
+      withSpinner(plotOutput("histogram"), type = 6, color = "#0dc5c1"),
+      size = "l",
+      easyClose = TRUE,
+      footer = modalButton("Close")
+    ))
+    
     select_id <- str_split_1(input$button_id, pattern = "_")[1]
     select_php <- str_split_1(input$button_id, pattern = "_")[2]
     
     hist_data <- matches() %>%
       filter(id == select_id & pheno_class_id == select_php)
-
+    
     output$histogram <- renderPlot({
       ggplot(hist_data, aes(x = first_yes_prior)) +
         geom_histogram(binwidth = 1) +
@@ -276,7 +288,7 @@ server <- function(input, output, session) {
         labs(x = "First yes day of year", y = "Count")
     })
   })
-
+  
   filtered_frame <- reactive({
     frame <- req(current_df())
     indexes <- req(input$table_rows_all)
