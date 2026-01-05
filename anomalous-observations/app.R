@@ -21,9 +21,14 @@ board <- board_connect(
 )
 
 # Load data from pins
-current <- pin_read(board = board, "ezylstra/anom-data-current-yr")
-prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs")
-dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix")
+# current <- pin_read(board = board, "ezylstra/anom-data-current-yr")
+# prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs")
+# dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix")
+
+# Load data from pins (2025 dashboard)
+current <- pin_read(board = board, "ezylstra/anom-data-current-yr-25")
+prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs-25")
+dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix-25")
 
 # ui --------------------------------------------------------------------------#
 
