@@ -2,8 +2,6 @@
 title: "Anomalous spring observations - data download"
 format: html
 editor: visual
-editor_options: 
-  chunk_output_type: console
 ---
 
 ```{r setup}
@@ -60,6 +58,15 @@ first_yr <- 2009
 period_start <- "01-01"
 period_end <- "05-31"
 requestor <- "erinz"
+
+# Create logical that will prevent downloading data repeatedly after the period end
+last_download_date <- paste0(current_yr, "-", period_end)
+last_download_date <- as.Date(last_download_date) + 7
+if (today >= last_download_date) {
+  skip_download <- TRUE
+} else {
+  skip_download <- FALSE
+}
 
 # Postal codes for lower 48 states
 states48 <- state.abb[! state.abb %in% c("AK", "HI")]
@@ -160,30 +167,59 @@ elev_fill_in <- function(df) {
 ```
 
 ```{r load-prior-yrs}
+#| message: false
+#| warning: false
 
-# Check if pin exists
-prior_exists <- pin_exists(board, "ezylstra/anom-data-prior-yrs")
-
-# If it doesn't exist, create it. Otherwise, load it and append data from last 
-# calendar year if not already in there.
-
-missing_yrs_tf <- FALSE
-
-if (prior_exists) {
-  prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs")
+if (skip_download == FALSE) {
   
-  # Years in dataset
-  yrs_in_file <- sort(unique(prior$year))
+  # Check if pin exists
+  prior_exists <- pin_exists(board, "ezylstra/anom-data-prior-yrs")
   
-  # Identify whether any years are missing or not
-  missing_yrs <- setdiff(first_yr:last_yr, yrs_in_file)
-  missing_yrs_tf <- ifelse(length(missing_yrs) == 0, FALSE, TRUE)
+  # If it doesn't exist, create it. Otherwise, load it and append data from last 
+  # calendar year if not already in there.
   
-  if (missing_yrs_tf) {
+  missing_yrs_tf <- FALSE
+  
+  if (prior_exists) {
+    prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs")
+    
+    # Years in dataset
+    yrs_in_file <- sort(unique(prior$year))
+    
+    # Identify whether any years are missing or not
+    missing_yrs <- setdiff(first_yr:last_yr, yrs_in_file)
+    missing_yrs_tf <- ifelse(length(missing_yrs) == 0, FALSE, TRUE)
+    
+    if (missing_yrs_tf) {
+      
+      prior_dl <- npn_download_individual_phenometrics(
+        request_source = requestor,
+        years = missing_yrs,
+        period_start = period_start,
+        period_end = period_end,
+        pheno_class_ids = pheno_class_ids,
+        additional_fields = c("observed_status_conflict_flag",
+                              "species_functional_type")
+      )
+    
+      prior_add <- ind_ph_cleanup(prior_dl, prior_no_max = prior_no_max)
+      prior_add <- state_fill_in(prior_add)
+      prior_add <- elev_fill_in(prior_add)
+      rm(prior_dl)
+      
+      prior <- rbind(prior, prior_add)
+      
+      # Write to pin
+      pin_write(board = board,
+            x = prior,
+            name = "ezylstra/anom-data-prior-yrs")
+    }
+    
+  } else {
     
     prior_dl <- npn_download_individual_phenometrics(
       request_source = requestor,
-      years = missing_yrs,
+      years = first_yr:last_yr,
       period_start = period_start,
       period_end = period_end,
       pheno_class_ids = pheno_class_ids,
@@ -191,102 +227,82 @@ if (prior_exists) {
                             "species_functional_type")
     )
   
-    prior_add <- ind_ph_cleanup(prior_dl, prior_no_max = prior_no_max)
-    prior_add <- state_fill_in(prior_add)
-    prior_add <- elev_fill_in(prior_add)
+    prior <- ind_ph_cleanup(prior_dl, prior_no_max = prior_no_max)
+    prior <- state_fill_in(prior)
+    prior <- elev_fill_in(prior)
     rm(prior_dl)
-    
-    prior <- rbind(prior, prior_add)
     
     # Write to pin
     pin_write(board = board,
-          x = prior,
-          name = "ezylstra/anom-data-prior-yrs")
-  }
+            x = prior,
+            name = "ezylstra/anom-data-prior-yrs")
+  } 
+}
+```
+
+```{r current-yr}
+#| message: false
+#| warning: false
+
+if (skip_download == FALSE) {
   
-} else {
+  # Don't need to check for last date in file. Anytime the script is run, it will 
+  # download current year data through current date.
   
-  prior_dl <- npn_download_individual_phenometrics(
+  current_dl <- npn_download_individual_phenometrics(
     request_source = requestor,
-    years = first_yr:last_yr,
+    years = current_yr,
     period_start = period_start,
     period_end = period_end,
     pheno_class_ids = pheno_class_ids,
     additional_fields = c("observed_status_conflict_flag",
                           "species_functional_type")
   )
-
-  prior <- ind_ph_cleanup(prior_dl, prior_no_max = prior_no_max)
-  prior <- state_fill_in(prior)
-  prior <- elev_fill_in(prior)
-  rm(prior_dl)
+  
+  current <- ind_ph_cleanup(current_dl, prior_no_max = prior_no_max)
+  current <- state_fill_in(current)
+  current <- elev_fill_in(current)
+  rm(current_dl)
   
   # Write to pin
   pin_write(board = board,
-          x = prior,
-          name = "ezylstra/anom-data-prior-yrs")
-} 
-
-```
-
-```{r current-yr}
-#| message: false
-#| eval: true
-
-# Don't need to check for last date in file. Will schedule this script to run
-# daily from 1 Jan through 31 May. Anytime the script is run, it will 
-# download current year data through current date.
-
-current_dl <- npn_download_individual_phenometrics(
-  request_source = requestor,
-  years = current_yr,
-  period_start = period_start,
-  period_end = period_end,
-  pheno_class_ids = pheno_class_ids,
-  additional_fields = c("observed_status_conflict_flag",
-                        "species_functional_type")
-)
-
-current <- ind_ph_cleanup(current_dl, prior_no_max = prior_no_max)
-current <- state_fill_in(current)
-current <- elev_fill_in(current)
-rm(current_dl)
-
-# Write to pin
-pin_write(board = board,
-          x = current,
-          name = "ezylstra/anom-data-current-yr")
-
+            x = current,
+            name = "ezylstra/anom-data-current-yr")
+}
 ```
 
 ```{r distance-calculations}
+#| message: false
+#| warning: false
 
-# Convert to data.table for performance
-current_dt <- as.data.table(current)
-prior_dt <- as.data.table(prior)
+if (skip_download == FALSE) {
 
-# Add unique row IDs
-current_dt[, row_id := .I]
-
-# Get unique sites from both dataframes
-current_sites <- unique(current_dt[, .(site_id, lat, lon)])
-prior_sites <- unique(prior_dt[, .(site_id, lat, lon)])
-
-# Compute distance matrix
-dist_matrix <- terra::distance(
-  x = as.matrix(current_sites[, .(lon, lat)]),
-  y = as.matrix(prior_sites[, .(lon, lat)]),
-  lonlat = TRUE,
-  unit = "km"
-)
-
-# Append site IDs for current/prior sites as rownames/colnames
-rownames(dist_matrix) <- current_sites$site_id
-colnames(dist_matrix) <- prior_sites$site_id
-
-# Write to pin
-pin_write(board = board,
-          x = dist_matrix,
-          name = "ezylstra/anom-data-dist-matrix")
-
+  # Convert to data.table for performance
+  current_dt <- as.data.table(current)
+  prior_dt <- as.data.table(prior)
+  
+  # Add unique row IDs
+  current_dt[, row_id := .I]
+  
+  # Get unique sites from both dataframes
+  current_sites <- unique(current_dt[, .(site_id, lat, lon)])
+  prior_sites <- unique(prior_dt[, .(site_id, lat, lon)])
+  
+  # Compute distance matrix
+  dist_matrix <- terra::distance(
+    x = as.matrix(current_sites[, .(lon, lat)]),
+    y = as.matrix(prior_sites[, .(lon, lat)]),
+    lonlat = TRUE,
+    unit = "km"
+  )
+  
+  # Append site IDs for current/prior sites as rownames/colnames
+  rownames(dist_matrix) <- current_sites$site_id
+  colnames(dist_matrix) <- prior_sites$site_id
+  
+  # Write to pin
+  pin_write(board = board,
+            x = dist_matrix,
+            name = "ezylstra/anom-data-dist-matrix")
+} 
 ```

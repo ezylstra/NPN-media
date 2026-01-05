@@ -1,0 +1,14 @@
+name: anom-obs-data-download
+title: anom-obs-data-download
+username: ezylstra
+account: ezylstra
+server: viz.datascience.arizona.edu
+hostUrl: https://viz.datascience.arizona.edu/__api__
+appId: 1355
+bundleId: 8369
+url: https://viz.datascience.arizona.edu:443/content/87eeee40-30bb-4617-b6ec-aaaf2a0d092e/
+version: 1
+quarto_version: 1.7.32
+quarto_engines: knitr
+asMultiple: FALSE
+asStatic: FALSE
