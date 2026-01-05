@@ -217,6 +217,8 @@ server <- function(input, output, session) {
              common_name = factor(common_name),
              func_type = factor(func_type),
              state = factor(state),
+             id = factor(id),
+             first_date = as.Date(first_date),
              early_cat = factor(early_cat),
              early_percentile = qearly(),
              elevation_buffer_m = elev_buffer(),
