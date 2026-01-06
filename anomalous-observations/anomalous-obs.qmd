@@ -13,6 +13,8 @@ format:
     fig-cap-location: top
     embed-resources: false
 editor: visual
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{css echo=FALSE}
@@ -42,7 +44,7 @@ library(leaflet)
 library(kableExtra)
 
 # Current year
-year <- 2025
+year <- 2026
 
 # Prior years
 prior_years <- 2009:(year - 1)
@@ -81,7 +83,7 @@ pheno_class_ids <- c(1, 3, 6, 7)
 # agdd_date to desired date.
 agdd_today <- TRUE
 if (!agdd_today) {
-  agdd_date <- ymd("2025-02-03")
+  agdd_date <- ymd("2026-02-03")
 } else {
   agdd_date <- today()
 }
@@ -237,6 +239,7 @@ current <- current %>%
 
 for (pheno_class in pheno_class_ids) {
   spp <- unique(current$species_id[current$pheno_class_id == pheno_class])
+  if (length(spp) == 0) {next}
   dl_temp <- npn_download_individual_phenometrics(
                request_source = 'erinz',
                years = prior_years,
@@ -245,7 +248,7 @@ for (pheno_class in pheno_class_ids) {
                additional_fields = c("observed_status_conflict_flag",
                                      "species_functional_type")
               )
-  if (pheno_class == pheno_class_ids[1]) {
+  if (!exists("prior_dl")) {
     prior_dl <- dl_temp
   } else {
     prior_dl <- rbind(prior_dl, dl_temp)
