@@ -87,8 +87,8 @@ ui <- page_navbar(
   fillable = "Map",
   nav_panel(title = "Data", 
             downloadButton("download", "Download filtered data"),
-            DTOutput(outputId = "table")),
-            # plotOutput(outputId = "histogram")),
+            # DTOutput(outputId = "table")),
+            div(DTOutput(outputId = "table"), style = "font-size:80%")),
   nav_panel(title = "Map", 
             leafletOutput(outputId = "map"),
             em("Locations in map have been adjusted slightly to limit overlap")),
@@ -210,9 +210,9 @@ server <- function(input, output, session) {
                                 ifelse(early == 1, "Early", "Not early"))) %>%
       filter(early == 1 | earliest == 1) %>%
       arrange(pheno_class_id, func_type, common_name, state, site_id, id) %>%
-      select(php_simple, common_name, func_type, state, site_id, id, 
-             first_date, prior_no, early_cat, prior_nyrs, prior_nobs,
-             pheno_class_id, lat, lon) %>%
+      select(php_simple, common_name, func_type, state, 
+             first_date, early_cat, prior_nyrs, prior_nobs, prior_no, 
+             id, site_id, lat, lon, pheno_class_id) %>%
       mutate(php_simple = factor(php_simple),
              common_name = factor(common_name),
              func_type = factor(func_type),
@@ -229,45 +229,50 @@ server <- function(input, output, session) {
   output$table <- renderDT({
     newtable <- current_df() %>%
       mutate(
-        actionable = glue('<button id="custom_btn" onclick="Shiny.onInputChange(\'button_id\', \'{id_class}\')">Click</button>')
-      )
+        actionable = glue('<button id="custom_btn" onclick="Shiny.onInputChange(\'button_id\', \'{id_class}\')">Histogram</button>')
+      ) %>%
+      relocate(actionable)
     
     datatable(newtable,
               escape = FALSE,
               selection = "single",
-              colnames = c("Phenophase", 
+              colnames = c("Histogram",
+                           "Phenophase", 
                            "Species",
                            "Functional type",
                            "State",
-                           "Site ID",
-                           "Plant ID",
                            "First yes",
-                           "Days since no",
                            "Early",
-                           "Num. comparison yrs",
-                           "Num. comparison obs",
-                           "Phenophase class ID",
+                           "Comparison yrs",
+                           "Comparison obs",
+                           "Days since no",
+                           "Plant ID",
+                           "Site ID",
                            "Latitude",
                            "Longitude",
+                           "Phenophase class ID",
                            "Early percentile",
                            "Elevation buffer (m)",
                            "Geographic radius (km)",
-                           "Id_PhenoClass",
-                           "Histogram"),
+                           "Id_PhenoClass"),
               extensions = 'Buttons',
               options = list(
                 server = FALSE,
                 scrollX = TRUE,
                 scrollY = TRUE,
-                dom = 'lfrtip',
+                dom = 'lrtip',
                 pageLength = 10,
                 lengthMenu = c(10, 50, 100),
                 autoWidth = TRUE,
                 # Hiding some columns, but keeping in table for downloads
                 # Centering some columns
-                columnDefs = list(list(targets = c(5, 8, 10:18), visible = FALSE),
+                columnDefs = list(list(targets = 15:19, visible = FALSE),
                                   list(targets = 4:11, className = 'dt-center'))),
-              filter = "top")
+              filter = "top") %>%
+      formatStyle("php_simple", "white-space"="nowrap") %>%
+      formatStyle("common_name", "white-space"="nowrap") %>%
+      formatStyle("func_type", "white-space"="nowrap") %>%
+      formatStyle("first_date", "white-space"="nowrap")
   })
 
   observeEvent(input$button_id, {
