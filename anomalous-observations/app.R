@@ -36,52 +36,65 @@ ui <- page_navbar(
   title = "Anomalous observations",
   sidebar = sidebar(
     width = "20%",
-    checkboxGroupInput(inputId = "inPhps",
-                       label = "Phenophases",
-                       choices = c("Breaking leaf buds" = 1,
-                                   "Leaves" = 3,
-                                   "Flowers" = 6,
-                                   "Open flowers" = 7),
-                       selected = c(1, 3, 6, 7)),
-    sliderInput(
-      inputId = "inRadius",
-      label = "Geographic radius (km)",
-      min = 20,
-      max = 1000,
-      step = 20,
-      value = 100
-    ),
-    sliderInput(
-      inputId = "inElev",
-      label = "Elevational buffer (m)",
-      min = 100,
-      max = 3000,
-      step = 100,
-      value = 1000
-    ),
-    sliderInput(
-      inputId = "inYrs",
-      label = "Min. prior years",
-      min = 5,
-      max = 10,
-      step = 1,
-      value = 8
-    ),
-    sliderInput(
-      inputId = "inObs",
-      label = "Min. prior observations",
-      min = 10,
-      max = 50,
-      step = 1,
-      value = 20
-    ),
-    sliderInput(
-      inputId = "inEarly",
-      label = "Early percentile",
-      min = 0.025,
-      max = 0.25,
-      step = 0.025,
-      value = 0.05
+    div(style = "font-size:90%",
+    navset_tab(
+      nav_panel(
+        title = "Settings",
+        checkboxGroupInput(inputId = "inPhps",
+                           label = "Phenophases",
+                           choices = c("Breaking leaf buds" = 1,
+                                       "Leaves" = 3,
+                                       "Flowers" = 6,
+                                       "Open flowers" = 7),
+                           selected = c(1, 3, 6, 7)),
+        sliderInput(
+          inputId = "inRadius",
+          label = "Geographic radius (km)",
+          min = 20,
+          max = 1000,
+          step = 20,
+          value = 100
+        ),
+        sliderInput(
+          inputId = "inElev",
+          label = "Elevational buffer (m)",
+          min = 100,
+          max = 3000,
+          step = 100,
+          value = 1000
+        ),
+        sliderInput(
+          inputId = "inYrs",
+          label = "Min. prior years",
+          min = 5,
+          max = 10,
+          step = 1,
+          value = 8
+        ),
+        sliderInput(
+          inputId = "inObs",
+          label = "Min. prior observations",
+          min = 10,
+          max = 50,
+          step = 1,
+          value = 20
+        ),
+        sliderInput(
+          inputId = "inEarly",
+          label = "Early percentile",
+          min = 0.025,
+          max = 0.25,
+          step = 0.025,
+          value = 0.05
+        )
+      ),
+      nav_panel(
+        title = "Info",
+        br(),
+        p("This is where we'll include a brief description of the app and
+          descriptions of the various options in the settings.")
+      )
+    )
     )
   ),
   fillable = "Map",
@@ -245,7 +258,7 @@ server <- function(input, output, session) {
                            "Early",
                            "Comparison yrs",
                            "Comparison obs",
-                           "Days since no",
+                           "Days since prior no",
                            "Plant ID",
                            "Site ID",
                            "Latitude",
@@ -277,6 +290,14 @@ server <- function(input, output, session) {
 
   observeEvent(input$button_id, {
     
+    select_id <- str_split_1(input$button_id, pattern = "_")[1]
+    select_php <- str_split_1(input$button_id, pattern = "_")[2]
+    
+    # Clear the old histogram output
+    output$histogram <- renderPlot({
+      NULL
+    })
+    
     # Show a modal with spinner immediately
     showModal(modalDialog(
       title = "Loading histogram...",
@@ -286,19 +307,37 @@ server <- function(input, output, session) {
       footer = modalButton("Close")
     ))
     
-    select_id <- str_split_1(input$button_id, pattern = "_")[1]
-    select_php <- str_split_1(input$button_id, pattern = "_")[2]
-    
     hist_data <- matches() %>%
       filter(id == select_id & pheno_class_id == select_php)
     
     output$histogram <- renderPlot({
       ggplot(hist_data, aes(x = first_yes_prior)) +
-        geom_histogram(binwidth = 1) +
-        geom_vline(xintercept = hist_data$first_yes[1],
-                   color = "blue", linetype = "dashed") +
-        labs(x = "First yes day of year", y = "Count")
+        geom_histogram(binwidth = 1, color = "gray",
+                       aes(fill = "Comparison observations (prior years)")) +
+        geom_vline(aes(xintercept = hist_data$first_yes[1],
+                       color = "Focal plant (current year)"), 
+                   linetype = "dashed") +
+        scale_fill_manual("", values = "gray30") +
+        scale_color_manual("", values = "dodgerblue4") +
+        labs(x = "First yes day of year", y = "No. comparison observations",
+             title = paste0(hist_data$common_name, ", ", hist_data$phenophase,
+                            "\nPlant ID: ", hist_data$id, "; Site ID: ", 
+                            hist_data$site_id)) +
+        theme(plot.title = element_text(size = 15),
+              axis.text = element_text(size = 15),
+              axis.title = element_text(size = 15),
+              legend.text = element_text(size = 15),
+              legend.position = "bottom")
     })
+    
+    # Update modal title after plot is created
+    showModal(modalDialog(
+      title = NULL,
+      plotOutput("histogram"),
+      size = "l",
+      easyClose = TRUE,
+      footer = modalButton("Close")
+    ))
   })
   
   filtered_frame <- reactive({
