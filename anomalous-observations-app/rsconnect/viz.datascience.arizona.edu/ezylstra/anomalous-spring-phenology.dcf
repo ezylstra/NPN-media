@@ -1,0 +1,12 @@
+name: anomalous-spring-phenology
+title: anomalous-spring-phenology
+username: ezylstra
+account: ezylstra
+server: viz.datascience.arizona.edu
+hostUrl: https://viz.datascience.arizona.edu/__api__
+appId: 1356
+bundleId: 8380
+url: https://viz.datascience.arizona.edu:443/content/e6bf056b-7d02-41c8-a104-26ac45036ccb/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
