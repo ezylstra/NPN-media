@@ -36,7 +36,7 @@ ui <- page_navbar(
   title = "Anomalous observations",
   sidebar = sidebar(
     width = "20%",
-    div(style = "font-size:90%",
+    div(style = "font-size:80%",
     navset_tab(
       nav_panel(
         title = "Settings",
