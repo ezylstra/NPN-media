@@ -35,6 +35,7 @@ dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix-25")
 ui <- page_navbar(
   title = "Anomalous observations",
   sidebar = sidebar(
+    p(strong(em("Testing with 2025 data"))),
     width = "20%",
     div(style = "font-size:80%",
     navset_tab(
@@ -255,7 +256,7 @@ server <- function(input, output, session) {
                            "Functional type",
                            "State",
                            "First yes",
-                           "Early",
+                           "Early/Earliest",
                            "Comparison yrs",
                            "Comparison obs",
                            "Days since prior no",
