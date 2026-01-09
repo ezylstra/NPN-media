@@ -371,8 +371,7 @@ server <- function(input, output, session) {
   output$map <- renderLeaflet({
     leaflet(data = map_frame()) %>%
       fitBounds(lng1 = -125, lat1 = 26, lng2 = -65, lat2 = 47) %>%
-      # addTiles() %>%
-      addProviderTiles("Stadia.AlidadeSmooth") %>%
+      addTiles(options = tileOptions(opacity = 0.7)) %>%
       addCircleMarkers(
         lng = ~lon, 
         lat = ~lat,
