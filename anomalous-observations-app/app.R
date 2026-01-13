@@ -21,21 +21,21 @@ board <- board_connect(
 )
 
 # Load data from pins
-# current <- pin_read(board = board, "ezylstra/anom-data-current-yr")
-# prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs")
-# dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix")
+current <- pin_read(board = board, "ezylstra/anom-data-current-yr")
+prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs")
+dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix")
 
 # Load data from pins (2025 dashboard)
-current <- pin_read(board = board, "ezylstra/anom-data-current-yr-25")
-prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs-25")
-dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix-25")
+# current <- pin_read(board = board, "ezylstra/anom-data-current-yr-25")
+# prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs-25")
+# dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix-25")
 
 # ui --------------------------------------------------------------------------#
 
 ui <- page_navbar(
   title = "Anomalous observations",
   sidebar = sidebar(
-    p(strong(em("Testing with 2025 data"))),
+    # p(strong(em("Testing with 2025 data"))),
     width = "20%",
     div(style = "font-size:80%",
     navset_tab(
@@ -294,11 +294,6 @@ server <- function(input, output, session) {
     select_id <- str_split_1(input$button_id, pattern = "_")[1]
     select_php <- str_split_1(input$button_id, pattern = "_")[2]
     
-    # Clear the old histogram output
-    output$histogram <- renderPlot({
-      NULL
-    })
-    
     # Show a modal with spinner immediately
     showModal(modalDialog(
       title = "Loading histogram...",
@@ -312,6 +307,15 @@ server <- function(input, output, session) {
       filter(id == select_id & pheno_class_id == select_php)
     
     output$histogram <- renderPlot({
+      # Remove the title once plot is ready
+      showModal(modalDialog(
+        title = NULL,
+        plotOutput("histogram"),
+        size = "l",
+        easyClose = TRUE,
+        footer = modalButton("Close")
+      ))
+      
       ggplot(hist_data, aes(x = first_yes_prior)) +
         geom_histogram(binwidth = 1, color = "gray",
                        aes(fill = "Comparison observations (prior years)")) +
@@ -330,17 +334,8 @@ server <- function(input, output, session) {
               legend.text = element_text(size = 15),
               legend.position = "bottom")
     })
-    
-    # Update modal title after plot is created
-    showModal(modalDialog(
-      title = NULL,
-      plotOutput("histogram"),
-      size = "l",
-      easyClose = TRUE,
-      footer = modalButton("Close")
-    ))
   })
-  
+
   filtered_frame <- reactive({
     frame <- req(current_df())
     indexes <- req(input$table_rows_all)
