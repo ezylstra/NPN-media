@@ -36,9 +36,61 @@ ui <- page_navbar(
   title = "Anomalous observations",
   sidebar = sidebar(
     # p(strong(em("Testing with 2025 data"))),
-    width = "20%",
+    width = "25%",
     div(style = "font-size:80%",
     navset_tab(
+      nav_panel(
+        title = "Info",
+        br(),
+        HTML("This app uses data submitted to <i>USA-NPN Nature’s Notebook</i> 
+             to identify phenological events in the spring of the current year 
+             that occurred earlier than expected based on observations made in 
+             prior years."),
+        br(),
+        br(),
+        HTML("Under the <b>Settings</b> tab, users can select various settings or 
+             filters that determine what data are included in the table on the 
+             <b>Data</b> page. Users can select a subset of phenophase classes 
+             via checkboxes at the top. They can also select which plants 
+             observed in prior years are compared to a plant observed in the 
+             current year by changing the geographic radius (in km) and 
+             elevational buffer (in m). Finally, the user can change the 
+             minimum number of prior observations or prior years that are 
+             required to evaluate whether a current-year observation is early,
+             and change the threshold used to determine whether an 
+             observation is early (default = 0.05, which means that to be 
+             classified as early, a current-year observation must be as early 
+             or earlier than 95% percent [(1 - 0.05) * 100%] of prior year 
+             observations)."),
+        br(),
+        br(),
+        HTML("Data in the table can be filtered further by selecting values in 
+             the boxes below each column header. Filters can be cleared by 
+             clicking on the circled “x” that appears when a filter is in 
+             place."),
+        br(),
+        br(),
+        HTML("Clicking on the <i>Histogram</i> button in a data table row 
+             produces a histogram associated with a current-year observation. 
+             The histogram is comprised of first yes dates in prior years for 
+             observations of the same phenophase for plants within the selected 
+             geographic and elevational limits. The dashed vertical line 
+             represents the first yes date for the focal plant in the current 
+             year."),
+        br(),
+        br(),
+        HTML("The filtered data table can be downloaded locally by clicking on 
+             the <i>Download Filtered Data</i> button at the top left. The user 
+             will be given an option to change the name and location of the 
+             resulting csv file."),
+        br(),
+        br(),
+        HTML("Circles on the <b>Map</b> depict observations included in the Data 
+             table (after any filters have been applied). Clicking on a circle 
+             will produce a popup that lists the species, individual plant ID, 
+             date of first yes in current year, and the number of prior years 
+             and observations used for comparison.")
+      ),
       nav_panel(
         title = "Settings",
         checkboxGroupInput(inputId = "inPhps",
@@ -90,10 +142,36 @@ ui <- page_navbar(
         )
       ),
       nav_panel(
-        title = "Info",
+        title = "Methods",
         br(),
-        p("This is where we'll include a brief description of the app and
-          descriptions of the various options in the settings.")
+        HTML("On a daily basis through the end of May each year, we run an R 
+             script that downloads individual phenometrics data from the 
+             <i>Nature’s Notebook</i> database using the rnpn package and 
+             extracts the first day of the current year that a phenophase was 
+             observed for an individual plant. We restrict observations to 
+             phenophases in 4 phenophase classes: initial vegetative growth 
+             (“Breaking leaf buds”), leaves or needles (“Leaves”), flowers or 
+             cones (“Flowers”), and open flowers or cones (“Open flowers”) for 
+             plants in the lower 48 states. We retain only those observations 
+             that were preceded by a prior “no” within 30 days."),
+        br(),
+        br(),
+        HTML("We then compare these current-year observations with similar 
+             observations of first yes dates in prior years (as far back as 
+             2009). For each current-year observation of a given plant and 
+             phenophase, we compare first yes dates for all plants of the same 
+             species within an X-km radius (default = 100 km) and within X-m 
+             elevation (default = 1000 m) of the focal plant. We only evaluated 
+             whether a current-year observation was early if there were at least 
+             X observations (default = 20) over X or more prior years (default = 
+             8) for that species and phenophase for plants within the selected 
+             distance- and elevation-based limits. We classify a current-year 
+             observation as <b><i>early</i></b> if it was earlier than X% of 
+             prior-year observations (default = 95% or 0.05 early percentile). 
+             We also note if the observation was as early or earlier than the 
+             earliest date ever recorded in Nature’s Notebook for that species, 
+             phenophase, and region (<b><i>earliest</i></b>). Any X value can be 
+             selected via sliders under the <b>Settings</b> tab.")
       )
     )
     )
