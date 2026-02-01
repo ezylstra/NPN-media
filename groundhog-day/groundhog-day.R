@@ -1,12 +1,11 @@
 # Groundhog day script
 # Adapted from https://github.com/alyssarosemartin/spring-media/blob/main/groundhog/groundhog.R#L1
-# 27 Jan 2026
+# 1 Feb 2026
 
 # 2026 notes: 
 # We're no longer producing AGDD forecasts for the next 7 days because we're 
 # just using PRISM data. So the maps will reflect AGDD values as the end of 
 # January.
-# I added code to fill the state code when missing, which added ~10% more sites.
 
 # General reminder: like in the past, we haven't restricted observations to 
 # those with a prior no. Map includes all first yeses, regardless of whether 
@@ -36,10 +35,10 @@ cols <- c("#6fa8d6", "#f7f0da", "#fa824d")
 
 # Helper calls ----------------------------------------------------------------#
 
-layers <- npn_get_layer_details()
+# layers <- npn_get_layer_details()
 # layers$abstract
 
-phenoclasses <- npn_pheno_classes() %>% data.frame()
+# phenoclasses <- npn_pheno_classes() %>% data.frame()
 # phenoclasses
 
 # Get states layer ------------------------------------------------------------#
@@ -61,23 +60,28 @@ if (!file.exists(states_shp)) {
 
 # Download individual phenometrics (first yeses) so far this year: 
 # breaking leaf bud / initial growth (class 1) and open flowers (class 7)
-df <- npn_download_individual_phenometrics(
+dforig <- npn_download_individual_phenometrics(
   request_source = 'erinz', 
   years = year,
-  pheno_class_ids = c(1, 7)
-)
+  period_start = "01-01",
+  period_end = "02-05",
+  pheno_class_ids = c(1, 7), 
+  additional_fields = c("dataset_id",
+                        "partner_group",
+                        "site_name")
+) %>% data.frame()
 
 # Some observations missing state ID. Will fill in using states layer from the
 # tigris package adn then restrict observations to continental US
 states48 <- state.abb[! state.abb %in% c("AK", "HI")]
-state_fill <- filter(df, is.na(state)) %>%
+state_fill <- filter(dforig, is.na(state)) %>%
   select(site_id, longitude, latitude) %>%
   rename(lon = longitude, lat = latitude) %>%
   distinct()
 state_fillv <- vect(state_fill, crs = "epsg:4326")
 state_new <- terra::extract(states, state_fillv)
 state_fill <- cbind(state_fill, state_new = state_new$postal)
-df <- df %>%
+df <- dforig %>%
   left_join(select(state_fill, site_id, state_new), by = "site_id") %>%
   mutate(state = ifelse(!is.na(state), state, state_new)) %>%
   select(-state_new) %>%
@@ -145,12 +149,12 @@ flower<- subset(df, pheno_class_id == 7)
 
 # Acquire raster forecast anomaly for Feb 2 (32 base) or most recent date when
 # AGDD data are available
-layers %>%
-  filter(name == "gdd:agdd_anomaly") %>%
-  select(name, title, abstract, dimension.name)
+# layers %>%
+#   filter(name == "gdd:agdd_anomaly") %>%
+#   select(name, title, abstract, dimension.name)
 
-today <- ymd(Sys.Date())
-agdd_day <- min(c(today, groundhog_date))
+yesterday <- ymd(Sys.Date()) - 1
+agdd_day <- min(c(yesterday, groundhog_date))
 
 groundhog <- npn_download_geospatial(coverage_id = "gdd:agdd_anomaly", 
                                      date = agdd_day)  
@@ -177,8 +181,8 @@ groundhog <- terra::project(groundhog, "epsg:4326")
 ghd_class <- terra::classify(x = groundhog, 
                              rcl = breaks, 
                              include.lowest = TRUE)
-freq(ghd_class)
-plot(ghd_class)
+# freq(ghd_class)
+# plot(ghd_class)
 
 ghd_plot <- ggplot() +
   geom_spatraster(data = ghd_class, maxcell = Inf) +
