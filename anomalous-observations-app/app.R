@@ -25,6 +25,10 @@ current <- pin_read(board = board, "ezylstra/anom-data-current-yr")
 prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs")
 dist_matrix <- pin_read(board = board, "ezylstra/anom-data-dist-matrix")
 
+# Get last updated date
+updated <- pin_meta(board = board, "ezylstra/anom-data-current-yr")$created
+updated <- str_sub(as.character(updated), 1, 10)
+
 # Load data from pins (2025 dashboard)
 # current <- pin_read(board = board, "ezylstra/anom-data-current-yr-25")
 # prior <- pin_read(board = board, "ezylstra/anom-data-prior-yrs-25")
@@ -42,10 +46,13 @@ ui <- page_navbar(
       nav_panel(
         title = "Info",
         br(),
+        HTML(paste0("<b>Last data download: </b>", updated)),
+        br(),
+        br(),
         HTML("This app uses data submitted to <i>USA-NPN Nature’s Notebook</i> 
              to identify phenological events in the spring of the current year 
-             that occurred earlier than expected based on observations made in 
-             prior years."),
+             (Jan - May) that occurred earlier than expected based on 
+             observations made in prior years."),
         br(),
         br(),
         HTML("Under the <b>Settings</b> tab, users can select various settings or 
